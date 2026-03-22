@@ -131,7 +131,3 @@ If the port dialog is canceled, the launcher exits without opening the app.
 - SQL parsing and `EXPLAIN` output are heuristic and should not be treated as real database execution plans
 - The tool is best for first-pass review, not as a replacement for `EXPLAIN ANALYZE`, slow query logs, or production-level benchmarking
 - OpenAI-compatible providers may still differ in endpoint behavior, so provider documentation should be checked when needed
-
-## GitHub Repository Description
-
-MySQL Query Optimization Copilot is a local tool prototype for parsing multi-table DDL, recommending indexes, generating non-invasive SQL rewrites, simulating `EXPLAIN` improvements, verifying configurable LLM endpoints, and enriching analysis with Baidu search enhancement. It supports one-click startup on both Windows and macOS.
