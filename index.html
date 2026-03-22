@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MySQL 智能查询优化与索引推荐助手</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero">
+        <div class="hero-copy-wrap">
+          <p class="eyebrow">MySQL Query Copilot</p>
+          <h1>MySQL 智能查询优化与索引推荐助手</h1>
+          <p class="hero-copy">
+            输入表结构与待优化 SQL，系统会解析元数据、验证模型配置，并同时输出索引方案与零侵入 SQL 重写建议。
+          </p>
+        </div>
+        <div class="hero-stats">
+          <div class="stat-card">
+            <span>表结构解析</span>
+            <strong id="tableCount">0</strong>
+          </div>
+          <div class="stat-card">
+            <span>可用模型</span>
+            <strong id="modelCount">0</strong>
+          </div>
+          <div class="stat-card">
+            <span>当前状态</span>
+            <strong id="activationStatus">未验证</strong>
+          </div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">一、核心输入区</p>
+              <h2>表结构与 SQL 输入</h2>
+            </div>
+            <div class="inline-actions">
+              <label class="field compact-field mode-field">
+                <span>分析模式</span>
+                <select id="analysisModeSelect">
+                  <option value="configured" selected>配置大模型</option>
+                  <option value="baidu_search">百度搜索增强</option>
+                </select>
+              </label>
+              <button id="analyzeButton" class="primary-button" disabled>开始优化分析</button>
+            </div>
+          </div>
+
+          <div id="modeAssistBanner" class="status-banner warning hidden">
+            <div class="mode-assist-row">
+              <span id="modeAssistText">当前模式缺少可用配置，请先前往大模型配置中心完成设置。</span>
+              <button id="jumpToConfigButton" class="ghost-button" type="button">前往大模型配置中心</button>
+            </div>
+          </div>
+
+          <div class="grid-two">
+            <div class="editor-card">
+              <div class="card-head">
+                <h3>多表结构定义</h3>
+                <div class="inline-actions">
+                  <button id="insertSchemaButton" class="ghost-button" type="button">插入</button>
+                  <button id="clearSchemaButton" class="ghost-button" type="button">一键清除</button>
+                  <button class="ghost-button" data-copy-target="schemaInput">复制</button>
+                </div>
+              </div>
+              <div class="code-editor">
+                <pre class="highlight-layer" id="schemaHighlight" aria-hidden="true"></pre>
+                <textarea
+                  id="schemaInput"
+                  spellcheck="false"
+                  placeholder="粘贴多个 CREATE TABLE 语句..."
+                ></textarea>
+              </div>
+              <div class="subtle-row">
+                <span>自动解析表名、字段、主键与现有索引</span>
+                <span id="schemaStatus">等待输入</span>
+              </div>
+            </div>
+
+            <div class="editor-card">
+              <div class="card-head">
+                <h3>待优化 SQL</h3>
+                <button class="ghost-button" data-copy-target="sqlInput">复制</button>
+              </div>
+              <div class="code-editor">
+                <pre class="highlight-layer" id="sqlHighlight" aria-hidden="true"></pre>
+                <textarea
+                  id="sqlInput"
+                  spellcheck="false"
+                  placeholder="输入需要优化的 SELECT 查询..."
+                ></textarea>
+              </div>
+              <div class="subtle-row">
+                <span>支持基础 SQL 关键字高亮</span>
+                <span id="sqlStatus">等待输入</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="metadata-card">
+            <div class="card-head">
+              <h3>解析结果预览</h3>
+            </div>
+            <div id="metadataSummary" class="metadata-grid"></div>
+          </div>
+        </section>
+
+        <section id="configCenterSection" class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">二、智能优化引擎</p>
+              <h2>索引建议、SQL 重写与 Explain 模拟</h2>
+            </div>
+          </div>
+
+          <div id="resultTrustBanner" class="status-banner neutral hidden"></div>
+
+          <div class="compare-layout">
+            <article class="result-card">
+              <div class="card-head">
+                <h3>优化前</h3>
+                <button class="ghost-button" data-copy-content="beforeExplain">复制 Explain</button>
+              </div>
+              <div class="editor-result">
+                <div id="beforeSummary" class="summary-box editor-surface empty-state">等待分析结果。</div>
+                <div id="beforeSummarySource" class="source-strip">结果来源：规则推断</div>
+                <div class="subtle-row editor-caption">
+                  <span>优化前摘要</span>
+                  <span>基于当前 SQL 与表结构推断</span>
+                </div>
+              </div>
+              <div class="editor-result">
+                <div id="beforeExplain" class="explain-table editor-surface empty-state">暂无 Explain 模拟。</div>
+                <div id="beforeExplainSource" class="source-strip">结果来源：规则推断</div>
+                <div class="subtle-row editor-caption">
+                  <span>Explain 模拟</span>
+                  <span>展示关键执行计划字段</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="result-card emphasized">
+              <div class="card-head">
+                <h3>优化后</h3>
+                <div class="inline-actions">
+                  <button class="ghost-button" data-copy-content="indexSql">复制索引 SQL</button>
+                  <button class="ghost-button" data-copy-content="rewrittenSql">复制重写 SQL</button>
+                </div>
+              </div>
+              <div class="editor-result">
+                <div id="afterSummary" class="summary-box editor-surface empty-state">分析后会在这里展示优化方案。</div>
+                <div id="afterSummarySource" class="source-strip">结果来源：规则推断</div>
+                <div class="subtle-row editor-caption">
+                  <span>优化结论摘要</span>
+                  <span>包含推荐索引与重写方向</span>
+                </div>
+              </div>
+              <div class="deliverables">
+                <div>
+                  <h4>索引架构优化建议</h4>
+                  <div class="editor-result">
+                    <pre id="indexSql" class="sql-output editor-surface empty-state">暂无结果</pre>
+                    <div id="indexSqlSource" class="source-strip">结果来源：规则推断</div>
+                    <div class="subtle-row editor-caption">
+                      <span>可执行索引语句</span>
+                      <span>支持一键复制</span>
+                    </div>
+                  </div>
+                  <div id="indexAdviceMeta" class="insight-list empty-state">索引类型与命中理由会展示在这里。</div>
+                </div>
+                <div>
+                  <h4>SQL 零侵入重写建议</h4>
+                  <div class="editor-result">
+                    <pre id="rewrittenSql" class="sql-output editor-surface empty-state">暂无结果</pre>
+                    <div id="rewrittenSqlSource" class="source-strip">结果来源：规则推断</div>
+                    <div class="subtle-row editor-caption">
+                      <span>重写后的 SQL</span>
+                      <span>尽量复用现有索引</span>
+                    </div>
+                  </div>
+                  <div id="rewriteAdviceMeta" class="insight-list empty-state">重写策略与适用原因会展示在这里。</div>
+                </div>
+                <div>
+                  <h4>Explain 模拟对比</h4>
+                  <div class="editor-result">
+                    <div id="afterExplain" class="explain-table editor-surface empty-state">暂无 Explain 模拟。</div>
+                    <div id="afterExplainSource" class="source-strip">结果来源：规则推断</div>
+                    <div class="subtle-row editor-caption">
+                      <span>优化后 Explain</span>
+                      <span>用于观察 type 与 rows 变化</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div class="risk-card alert-card">
+            <div class="card-head">
+              <h3>风险提示</h3>
+              <span class="risk-badge">High Attention</span>
+            </div>
+            <div id="riskList" class="risk-list empty-state">暂无风险提示。</div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading">
+            <div id="configCenterAnchor">
+              <p class="section-kicker">三、大模型配置中心</p>
+              <h2>安全接入、验证与模型维护</h2>
+            </div>
+          </div>
+
+          <div class="config-stack config-stack-wide">
+            <div id="configuredSecurityCard" class="security-card">
+              <div class="card-head">
+                <h3>鉴权与安全控制</h3>
+              </div>
+              <div class="security-stack">
+                <div class="security-line">
+                  <label class="field security-main-field">
+                    <span>当前验证模型</span>
+                    <select id="activeModelSelect"></select>
+                  </label>
+                  <div class="security-side-action">
+                    <button id="clearSecretButton" class="danger-button" type="button">重置/清除</button>
+                  </div>
+                </div>
+
+                <div class="security-line">
+                  <label class="field security-main-field">
+                    <span>API Key</span>
+                    <div class="secure-input-row">
+                      <input id="apiKeyInput" type="password" placeholder="输入 API Key，是否本地保存由下方开关决定" />
+                      <button id="toggleSecretButton" class="ghost-button" type="button">显示</button>
+                    </div>
+                  </label>
+                  <div class="security-side-action">
+                    <button id="verifyButton" class="primary-button" type="button">验证并启用</button>
+                  </div>
+                </div>
+                <div class="security-line toggle-line">
+                  <label class="toggle-field" for="saveConfiguredApiKeyToggle">
+                    <span>保存 API Key</span>
+                    <input id="saveConfiguredApiKeyToggle" type="checkbox" />
+                    <span class="toggle-slider" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+              <div id="verificationBanner" class="status-banner neutral">
+                尚未验证模型，分析按钮会保持禁用。
+              </div>
+              <div id="verifyHintBanner" class="status-banner neutral hidden"></div>
+                <div class="subtle-row security-footnote">
+                  <span>已验证状态会在 10 分钟无操作后自动锁定，降低公共环境误用风险。</span>
+                </div>
+              </div>
+
+            <div id="configuredImportCard" class="import-card">
+              <div class="card-head">
+                <h3>导入配置</h3>
+                <a class="text-link" href="./docs/model-config-import.md" target="_blank" rel="noreferrer">查看使用文档</a>
+              </div>
+              <label class="field">
+                <span>JSON 粘贴导入</span>
+                <textarea
+                  id="importInput"
+                  class="import-textarea"
+                  spellcheck="false"
+                  placeholder='粘贴模型配置 JSON，采用“同名更新、其余追加”的合并策略'
+                ></textarea>
+              </label>
+              <div class="action-row">
+                <input id="importFileInput" type="file" accept="application/json" />
+                <button id="importButton" class="ghost-button" type="button">导入并合并</button>
+                <button id="exportButton" class="ghost-button" type="button">导出当前配置</button>
+                <a class="ghost-button button-link" href="./docs/model-config.template.json" download>下载模板</a>
+              </div>
+              <div id="importStatus" class="status-banner neutral">
+                支持上传或粘贴 JSON，重复名称会更新现有配置。
+              </div>
+            </div>
+
+            <div id="baiduConfigCard" class="security-card hidden">
+              <div class="card-head">
+                <h3>百度搜索增强配置</h3>
+              </div>
+              <div class="security-stack">
+                <div class="security-line baidu-top-actions">
+                  <div class="security-side-action">
+                    <a
+                      class="ghost-button button-link"
+                      href="https://cloud.baidu.com/doc/qianfan-api/s/Hmbu8m06u"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      获取百度 API Key
+                    </a>
+                  </div>
+                  <div class="security-side-action">
+                    <button id="clearBaiduSecretButton" class="danger-button" type="button">重置/清除</button>
+                  </div>
+                </div>
+
+                <div class="security-line">
+                  <label class="field security-main-field">
+                    <span>百度 API Key</span>
+                    <div class="secure-input-row">
+                      <input id="baiduApiKeyInput" type="password" placeholder="输入百度智能搜索生成 API Key，是否本地保存由下方开关决定" />
+                    </div>
+                  </label>
+                  <div class="security-inline-actions">
+                    <button id="toggleBaiduSecretButton" class="ghost-button" type="button">显示</button>
+                    <button id="verifyBaiduButton" class="primary-button" type="button">验证并启用</button>
+                  </div>
+                </div>
+                <div class="security-line toggle-line">
+                  <label class="toggle-field" for="saveBaiduApiKeyToggle">
+                    <span>保存 API Key</span>
+                    <input id="saveBaiduApiKeyToggle" type="checkbox" />
+                    <span class="toggle-slider" aria-hidden="true"></span>
+                  </label>
+                </div>
+              </div>
+              <div id="baiduStatusBanner" class="status-banner neutral">
+                选择“百度搜索增强”模式后，将通过百度官方智能搜索生成接口辅助输出优化建议。
+              </div>
+              <div class="subtle-row security-footnote">
+                <span>百度搜索增强的已验证状态同样会在 10 分钟无操作后自动锁定。</span>
+              </div>
+            </div>
+
+            <div id="configuredModelManager" class="model-manager full-width">
+              <div class="card-head">
+                <h3>模型列表维护</h3>
+                <button id="addModelButton" class="ghost-button">新增模型</button>
+              </div>
+              <div id="modelList" class="model-list"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="analysisToast" class="toast hidden" aria-live="polite">分析完成，结果已更新。</div>
+
+    <div id="schemaModal" class="modal-shell hidden" aria-hidden="true">
+      <div class="modal-card">
+        <div class="card-head">
+          <h3>插入表结构</h3>
+          <button id="closeSchemaModalButton" class="ghost-button" type="button">关闭</button>
+        </div>
+        <p class="modal-copy">粘贴新增的 `CREATE TABLE` 语句，保存后会自动追加到主文本框。未以 `;` 结尾时系统会自动补齐。</p>
+        <textarea
+          id="schemaModalInput"
+          class="import-textarea modal-textarea"
+          spellcheck="false"
+          placeholder="在这里粘贴新的表结构..."
+        ></textarea>
+        <div class="action-row">
+          <button id="saveSchemaModalButton" class="primary-button" type="button">保存并追加</button>
+          <button id="cancelSchemaModalButton" class="ghost-button" type="button">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <template id="modelRowTemplate">
+      <div class="model-row">
+        <label class="field compact-field">
+          <span>名称</span>
+          <input data-key="name" type="text" />
+        </label>
+        <label class="field compact-field">
+          <span>模型 ID</span>
+          <input data-key="modelId" type="text" />
+        </label>
+        <label class="field compact-field">
+          <span>完整验证地址</span>
+          <select data-key="verifyUrlPreset">
+            <option value="">手动输入</option>
+            <option value="https://api.openai.com/v1/chat/completions">OpenAI /v1/chat/completions</option>
+            <option value="https://api.openai.com/v1/models">OpenAI /v1/models</option>
+            <option value="https://api.minimaxi.com/v1/chat/completions">MiniMax /v1/chat/completions</option>
+            <option value="https://api.minimax.io/v1/chat/completions">MiniMax Global /v1/chat/completions</option>
+          </select>
+          <input data-key="verifyUrl" type="text" placeholder="也可以手动输入完整验证地址" />
+        </label>
+        <label class="field compact-field">
+          <span>验证方式</span>
+          <select data-key="verifyModePreset">
+            <option value="models_get">GET /models</option>
+            <option value="chat_post">POST /chat/completions</option>
+            <option value="">手动输入</option>
+          </select>
+          <input data-key="verifyMode" type="text" placeholder="也可以手动输入验证方式，例如 chat_post" />
+        </label>
+        <div class="model-row-hint hidden" data-role="verifyHint"></div>
+        <button class="danger-button remove-model-button" type="button">删除</button>
+      </div>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

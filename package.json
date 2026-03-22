@@ -1,0 +1,10 @@
+{
+  "name": "mysql-optimize-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MySQL 智能查询优化与索引推荐助手",
+  "scripts": {
+    "start": "node start.js",
+    "server": "node server.js"
+  }
+}

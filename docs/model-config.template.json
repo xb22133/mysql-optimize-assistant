@@ -1,0 +1,16 @@
+{
+  "models": [
+    {
+      "name": "OpenAI GPT-4.1",
+      "modelId": "gpt-4.1",
+      "verifyUrl": "https://api.openai.com/v1/models",
+      "verifyMode": "models_get"
+    },
+    {
+      "name": "MiniMax M2.5",
+      "modelId": "MiniMax-M2.5",
+      "verifyUrl": "https://api.minimaxi.com/v1/chat/completions",
+      "verifyMode": "chat_post"
+    }
+  ]
+}
