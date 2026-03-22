@@ -1,6 +1,6 @@
 {
   "name": "mysql-optimize-assistant",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "MySQL 智能查询优化与索引推荐助手",
   "scripts": {
