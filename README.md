@@ -18,6 +18,39 @@ A lightweight desktop-friendly tool for analyzing MySQL `SELECT` queries, genera
 - [Model Config Import Guide](./docs/model-config-import.md)
 - [Latest Release](https://github.com/xb22133/mysql-optimize-assistant/releases/latest)
 
+## At a Glance
+
+| Module | What It Does | Output |
+| --- | --- | --- |
+| Schema Parsing | Parses multiple `CREATE TABLE` statements and extracts table metadata | tables, columns, primary keys, existing indexes |
+| SQL Optimization | Analyzes `SELECT` statements with local heuristic rules | index suggestions, SQL rewrites, risk warnings |
+| Explain Simulation | Simulates before/after execution characteristics | `type`, `rows`, and `Extra` comparison |
+| Model Validation | Verifies configurable model endpoints with API keys | validated model session for analysis |
+| Baidu Search Enhancement | Adds search-enhanced optimization context | supplemental optimization evidence and refinement |
+
+## 3-Step Quick Start
+
+### 1. Start the App
+
+```bash
+npm start
+```
+
+Or double-click `launch.command` on macOS / `launch.bat` on Windows.
+
+### 2. Paste Schema and SQL
+
+- Paste one or more `CREATE TABLE` statements
+- Paste the `SELECT` statement you want to optimize
+- Choose either `Configured Model` or `Baidu Search Enhancement`
+
+### 3. Run Analysis and Review Results
+
+- Review index recommendations
+- Review non-invasive SQL rewrite suggestions
+- Compare simulated `EXPLAIN`
+- Check risk levels before applying changes
+
 ## Highlights
 
 - Paste multiple `CREATE TABLE` statements and build in-memory metadata automatically

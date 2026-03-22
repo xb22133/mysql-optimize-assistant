@@ -14,6 +14,39 @@ A lightweight local tool for MySQL query analysis. It parses multiple table defi
 - [Model Config Import Guide](./docs/model-config-import.md)
 - [Latest Release](https://github.com/xb22133/mysql-optimize-assistant/releases/latest)
 
+## At a Glance
+
+| Module | What It Does | Output |
+| --- | --- | --- |
+| Schema Parsing | Parses multiple `CREATE TABLE` statements and extracts metadata | tables, columns, primary keys, existing indexes |
+| SQL Optimization | Applies local heuristic analysis to `SELECT` statements | index suggestions, SQL rewrites, risk warnings |
+| Explain Simulation | Simulates optimization impact before and after changes | `type`, `rows`, and `Extra` comparison |
+| Model Validation | Verifies configurable model endpoints with API keys | validated model session |
+| Baidu Search Enhancement | Adds search-based evidence to local analysis | supplemental optimization suggestions |
+
+## 3-Step Quick Start
+
+### 1. Start the Project
+
+```bash
+npm start
+```
+
+You can also double-click `launch.command` on macOS or `launch.bat` on Windows.
+
+### 2. Paste Schema and SQL
+
+- Paste one or more `CREATE TABLE` statements
+- Paste the `SELECT` query you want to optimize
+- Choose `Configured Model` or `Baidu Search Enhancement`
+
+### 3. Review the Optimization Output
+
+- inspect index recommendations
+- inspect non-invasive SQL rewrites
+- compare simulated `EXPLAIN`
+- review risk levels before applying changes
+
 ## Use Cases
 
 - Quickly review whether a query is missing useful indexes

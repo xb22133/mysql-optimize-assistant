@@ -14,6 +14,42 @@
 - [模型配置导入说明](./docs/model-config-import.md)
 - [最新版本发布](https://github.com/xb22133/mysql-optimize-assistant/releases/latest)
 
+## 一眼看懂
+
+| 模块 | 作用 | 输出结果 |
+| --- | --- | --- |
+| 表结构解析 | 解析多个 `CREATE TABLE` 并提取表元数据 | 表、字段、主键、已有索引 |
+| SQL 优化分析 | 基于本地规则分析 `SELECT` 语句 | 索引建议、SQL 重写、风险提示 |
+| Explain 模拟 | 模拟优化前后执行特征变化 | `type`、`rows`、`Extra` 对比 |
+| 模型验证 | 验证自定义模型接口与 API Key | 可用模型会话 |
+| 百度搜索增强 | 引入搜索增强结果作为补充证据 | 补充型优化建议与经验样本 |
+
+## 3 步快速上手
+
+### 1. 启动项目
+
+```bash
+npm start
+```
+
+也可以：
+
+- macOS 双击 `launch.command`
+- Windows 双击 `launch.bat`
+
+### 2. 粘贴表结构与 SQL
+
+- 粘贴一个或多个 `CREATE TABLE`
+- 粘贴待优化的 `SELECT` 语句
+- 选择 `配置大模型` 或 `百度搜索增强`
+
+### 3. 开始分析并查看结果
+
+- 查看索引架构优化建议
+- 查看 SQL 零侵入重写建议
+- 对比模拟 Explain
+- 根据风险等级决定是否采用
+
 ## 适用场景
 
 - 开发阶段快速检查 SQL 是否缺索引
