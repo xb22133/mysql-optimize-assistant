@@ -1,6 +1,18 @@
 # MySQL 智能查询优化与索引推荐助手
 
+[![Release](https://img.shields.io/github/v/release/xb22133/mysql-optimize-assistant?label=release)](https://github.com/xb22133/mysql-optimize-assistant/releases)
+[![平台](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue)](./README.md)
+[![技术栈](https://img.shields.io/badge/stack-HTML%20%7C%20CSS%20%7C%20JavaScript%20%7C%20Node.js-111827)](./package.json)
+[![English](https://img.shields.io/badge/docs-English-0f766e)](./README.en.md)
+
 一个面向 MySQL 查询分析场景的轻量级本地工具。它可以解析多表结构、分析 `SELECT` 语句、生成索引架构优化建议、提供 SQL 零侵入重写方案，并通过启发式 `EXPLAIN` 模拟帮助你更快判断优化方向。
+
+## 快速入口
+
+- [仓库首页说明](./README.md)
+- [英文文档](./README.en.md)
+- [模型配置导入说明](./docs/model-config-import.md)
+- [最新版本发布](https://github.com/xb22133/mysql-optimize-assistant/releases/latest)
 
 ## 适用场景
 

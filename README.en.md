@@ -1,6 +1,18 @@
 # MySQL Query Optimization Copilot
 
+[![Release](https://img.shields.io/github/v/release/xb22133/mysql-optimize-assistant?label=release)](https://github.com/xb22133/mysql-optimize-assistant/releases)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue)](./README.md)
+[![Stack](https://img.shields.io/badge/stack-HTML%20%7C%20CSS%20%7C%20JavaScript%20%7C%20Node.js-111827)](./package.json)
+[![中文文档](https://img.shields.io/badge/docs-%E4%B8%AD%E6%96%87-0f766e)](./README.zh-CN.md)
+
 A lightweight local tool for MySQL query analysis. It parses multiple table definitions, analyzes `SELECT` statements, generates index recommendations, proposes non-invasive SQL rewrites, and provides heuristic `EXPLAIN` comparisons to help teams make faster optimization decisions.
+
+## Quick Links
+
+- [Repository Overview](./README.md)
+- [Chinese Documentation](./README.zh-CN.md)
+- [Model Config Import Guide](./docs/model-config-import.md)
+- [Latest Release](https://github.com/xb22133/mysql-optimize-assistant/releases/latest)
 
 ## Use Cases
 
