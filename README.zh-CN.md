@@ -29,13 +29,15 @@
 ### 1. 启动项目
 
 ```bash
-npm start
+npm run manage
 ```
 
 也可以：
 
 - macOS 双击 `launch.command`
 - Windows 双击 `launch.bat`
+
+两个入口都会打开同一套管理控制台。
 
 ### 2. 粘贴表结构与 SQL
 
@@ -124,7 +126,7 @@ npm start
 ### 命令行启动
 
 ```bash
-npm start
+npm run manage
 ```
 
 ### 双击启动
@@ -134,20 +136,27 @@ npm start
 
 启动器会自动：
 
-- 弹出端口输入框，默认 `8080`
-- 检查服务是否已启动
-- 如未启动则自动拉起 `server.js`
-- 自动打开浏览器
+- 允许修改端口，默认 `8080`
+- 启动本地服务
+- 显示当前运行状态
+- 在服务运行时再次打开网页
+- 在同一个控制台中关闭服务
 
-如果关闭端口输入框，启动器会直接退出。
+如果关闭管理控制台页面，不会强制关闭已经运行的服务。
 
 ## 文件结构
 
 - `index.html`：页面结构
 - `styles.css`：UI 样式与响应式布局
 - `app.js`：表结构解析、SQL 分析、结果渲染、前端状态管理
+- `manager.js`：跨平台管理控制台启动入口
+- `manager-host.js`：管理控制台本地服务
+- `manager.html`：统一管理页面
+- `manager-client.js`：管理页面交互逻辑
+- `manager.css`：管理页面样式
 - `server.js`：本地静态服务和代理接口
-- `start.js`：一键启动入口
+- `start.js`：服务启动脚本
+- `stop.js`：服务关闭脚本
 - `launch.command`：macOS 双击启动脚本
 - `launch.bat`：Windows 双击启动脚本
 - `docs/model-config.template.json`：模型配置导入模板

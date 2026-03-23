@@ -33,10 +33,10 @@ A lightweight desktop-friendly tool for analyzing MySQL `SELECT` queries, genera
 ### 1. Start the App
 
 ```bash
-npm start
+npm run manage
 ```
 
-Or double-click `launch.command` on macOS / `launch.bat` on Windows.
+Or double-click `launch.command` on macOS / `launch.bat` on Windows to open the same management console.
 
 ### 2. Paste Schema and SQL
 
@@ -69,7 +69,7 @@ Or double-click `launch.command` on macOS / `launch.bat` on Windows.
 ## Quick Start
 
 ```bash
-npm start
+npm run manage
 ```
 
 You can also double-click:
@@ -77,19 +77,27 @@ You can also double-click:
 - macOS: `launch.command`
 - Windows: `launch.bat`
 
-The launcher will:
+The management console will:
 
-- ask for a port, defaulting to `8080`
-- start the local server if needed
-- open the browser automatically
+- let you change the port
+- start the local service
+- show current running status
+- reopen the app page while the service is running
+- stop the service in the same console
 
 ## Main Files
 
 - `index.html`: UI structure
 - `styles.css`: visual design and responsive layout
 - `app.js`: state, parsing, analysis, rendering, and client logic
+- `manager.js`: cross-platform launcher for the management console
+- `manager-host.js`: local control server for the management console
+- `manager.html`: unified management page
+- `manager-client.js`: management page interaction logic
+- `manager.css`: management page styles
 - `server.js`: local static server and proxy APIs
-- `start.js`: one-click launcher
+- `start.js`: service starter
+- `stop.js`: service stopper
 
 ## Documentation
 

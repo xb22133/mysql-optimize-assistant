@@ -29,10 +29,10 @@ A lightweight local tool for MySQL query analysis. It parses multiple table defi
 ### 1. Start the Project
 
 ```bash
-npm start
+npm run manage
 ```
 
-You can also double-click `launch.command` on macOS or `launch.bat` on Windows.
+You can also double-click `launch.command` on macOS or `launch.bat` on Windows to open the same management console.
 
 ### 2. Paste Schema and SQL
 
@@ -121,7 +121,7 @@ Notes:
 ### Command line
 
 ```bash
-npm start
+npm run manage
 ```
 
 ### One-click launch
@@ -129,21 +129,29 @@ npm start
 - macOS: double-click `launch.command`
 - Windows: double-click `launch.bat`
 
-The launcher will:
+The management console will:
 
-- prompt for a port, default `8080`
-- start the local server if needed
-- open the browser automatically
+- let you change the port
+- start the local service
+- show current running status
+- reopen the app page while the service is running
+- stop the service from the same console
 
-If the port dialog is canceled, the launcher exits without opening the app.
+Closing the management console does not forcibly stop a running service.
 
 ## Project Structure
 
 - `index.html`: UI structure
 - `styles.css`: styles and responsive layout
 - `app.js`: parsing, analysis, state management, and rendering
+- `manager.js`: cross-platform launcher for the management console
+- `manager-host.js`: local control host for the management console
+- `manager.html`: unified management page
+- `manager-client.js`: management page interaction logic
+- `manager.css`: management page styles
 - `server.js`: local static server and proxy endpoints
-- `start.js`: one-click launcher
+- `start.js`: service starter
+- `stop.js`: service stopper
 - `launch.command`: macOS launcher
 - `launch.bat`: Windows launcher
 - `docs/model-config.template.json`: model import template

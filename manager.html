@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MySQL Optimize Assistant 控制台</title>
+    <link rel="stylesheet" href="./manager.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="card">
+        <div class="heading">
+          <div>
+            <p class="kicker">Service Console</p>
+            <h1>MySQL Optimize Assistant 控制台</h1>
+            <p class="copy">在同一个窗口中完成端口设置、服务启动、状态查看、再次打开网页和关闭服务。</p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <label class="field">
+            <span>端口号</span>
+            <input id="portInput" type="text" value="8080" />
+          </label>
+          <div id="statusBadge" class="status neutral">状态检测中</div>
+        </div>
+
+        <div class="actions">
+          <button id="startButton" class="primary">启动服务</button>
+          <button id="openButton" class="ghost">打开程序</button>
+          <button id="stopButton" class="danger">关闭服务</button>
+          <button id="refreshButton" class="ghost">刷新状态</button>
+        </div>
+
+        <pre id="outputBox" class="output">准备就绪。</pre>
+      </section>
+    </main>
+
+    <script src="./manager-client.js"></script>
+  </body>
+</html>

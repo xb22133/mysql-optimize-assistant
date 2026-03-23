@@ -9,6 +9,8 @@ const LOG_DIR = path.join(__dirname, "logs");
 const LAUNCH_LOG_FILE = path.join(LOG_DIR, "launcher.log");
 const SERVER_STDOUT_LOG_FILE = path.join(LOG_DIR, "server.stdout.log");
 const SERVER_STDERR_LOG_FILE = path.join(LOG_DIR, "server.stderr.log");
+const PID_REGISTRY_FILE = path.join(LOG_DIR, "server-registry.json");
+const cliOptions = parseArgs(process.argv.slice(2));
 
 void main();
 
@@ -16,7 +18,7 @@ async function main() {
   ensureLogDir();
 
   try {
-    const port = promptForPort();
+    const port = cliOptions.port || promptForPort();
     if (!port) {
       writeLaunchLog("Launch cancelled by user.");
       console.log("Launch cancelled.");
@@ -37,13 +39,18 @@ async function main() {
         throw new Error(`${message} Logs: ${LAUNCH_LOG_FILE}`);
       }
 
-      spawnServer(port);
+      const child = spawnServer(port);
       await waitForHealth(healthUrl, port);
+      registerServerProcess(child.pid, port);
     }
 
-    openBrowser(appUrl);
+    if (cliOptions.openBrowser) {
+      openBrowser(appUrl);
+    }
     writeLaunchLog(`App opened successfully at ${appUrl}.`);
-    console.log(`MySQL optimizer opened at ${appUrl}`);
+    console.log(
+      cliOptions.openBrowser ? `MySQL optimizer opened at ${appUrl}` : `MySQL optimizer is running at ${appUrl}`,
+    );
   } catch (error) {
     writeLaunchLog(`Launch failed: ${error.message || error}`);
     console.error("Failed to launch app:", error.message || error);
@@ -58,6 +65,33 @@ function ensureLogDir() {
 function writeLaunchLog(message) {
   const line = `[${new Date().toISOString()}] ${message}\n`;
   fs.appendFileSync(LAUNCH_LOG_FILE, line, "utf8");
+}
+
+function registerServerProcess(pid, port) {
+  try {
+    const registry = readRegistry().filter((entry) => entry.port !== String(port));
+    registry.push({
+      pid: Number(pid),
+      port: String(port),
+      startedAt: new Date().toISOString(),
+    });
+    fs.writeFileSync(PID_REGISTRY_FILE, JSON.stringify(registry, null, 2), "utf8");
+    writeLaunchLog(`Registered server process pid=${pid} on port ${port}.`);
+  } catch (error) {
+    writeLaunchLog(`Failed to register server process: ${error.message || error}`);
+  }
+}
+
+function readRegistry() {
+  try {
+    if (!fs.existsSync(PID_REGISTRY_FILE)) {
+      return [];
+    }
+
+    return JSON.parse(fs.readFileSync(PID_REGISTRY_FILE, "utf8"));
+  } catch (error) {
+    return [];
+  }
 }
 
 function spawnServer(port) {
@@ -76,6 +110,7 @@ function spawnServer(port) {
 
   writeLaunchLog(`Spawned server process pid=${child.pid} on port ${port}.`);
   child.unref();
+  return child;
 }
 
 async function isAppHealthy(healthUrl) {
@@ -212,6 +247,25 @@ function openBrowser(url) {
   }
 
   spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
+}
+
+function parseArgs(argv) {
+  const options = {
+    port: "",
+    openBrowser: true,
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--port" && argv[index + 1]) {
+      options.port = normalizePortInput(argv[index + 1]);
+      index += 1;
+    } else if (arg === "--no-open") {
+      options.openBrowser = false;
+    }
+  }
+
+  return options;
 }
 
 function httpRequest(urlString, options = {}) {

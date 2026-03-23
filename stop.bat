@@ -1,3 +1,3 @@
 @echo off
 cd /d %~dp0
-node manager.js
+node stop.js
