@@ -1,10 +1,13 @@
 const http = require("node:http");
+const https = require("node:https");
 const fs = require("node:fs");
 const path = require("node:path");
 const { URL } = require("node:url");
 
 const PORT = Number(process.env.PORT || 8080);
 const ROOT = __dirname;
+const LOG_DIR = path.join(ROOT, "logs");
+const SERVER_LOG_FILE = path.join(LOG_DIR, "server.log");
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -14,6 +17,8 @@ const MIME_TYPES = {
   ".md": "text/markdown; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
 };
+
+ensureLogDir();
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -44,12 +49,27 @@ const server = http.createServer(async (req, res) => {
 
     serveStatic(req, res);
   } catch (error) {
+    writeServerLog(`Request handling error: ${error.stack || error.message || error}`);
     sendJson(res, 500, { error: error.message || "Internal server error" });
   }
 });
 
 server.listen(PORT, () => {
+  writeServerLog(`Server listening on http://localhost:${PORT}`);
   console.log(`MySQL optimizer app running at http://localhost:${PORT}`);
+});
+
+server.on("error", (error) => {
+  writeServerLog(`Server startup error: ${error.stack || error.message || error}`);
+  console.error("Server error:", error.message || error);
+});
+
+process.on("uncaughtException", (error) => {
+  writeServerLog(`Uncaught exception: ${error.stack || error.message || error}`);
+});
+
+process.on("unhandledRejection", (reason) => {
+  writeServerLog(`Unhandled rejection: ${reason?.stack || reason?.message || reason}`);
 });
 
 async function handleVerify(req, res) {
@@ -104,11 +124,11 @@ async function handleVerify(req, res) {
             signal: controller.signal,
           };
 
-    const response = await fetch(target, requestOptions);
+    const response = await requestText(target, requestOptions);
 
     clearTimeout(timeout);
 
-    const rawText = await response.text();
+    const rawText = response.body;
     let payload = {};
     try {
       payload = rawText ? JSON.parse(rawText) : {};
@@ -117,8 +137,8 @@ async function handleVerify(req, res) {
     }
 
     if (!response.ok) {
-      sendJson(res, response.status, {
-        error: `HTTP ${response.status}: ${trimText(rawText) || "验证失败"}`,
+      sendJson(res, response.statusCode, {
+        error: `HTTP ${response.statusCode}: ${trimText(rawText) || "验证失败"}`,
       });
       return;
     }
@@ -170,7 +190,7 @@ async function handleBaiduSearchAnalyze(req, res) {
   const timeout = setTimeout(() => controller.abort(), 15000);
 
   try {
-    const response = await fetch("https://qianfan.baidubce.com/v2/ai_search/chat/completions", {
+    const response = await requestText("https://qianfan.baidubce.com/v2/ai_search/chat/completions", {
       method: "POST",
       headers: {
         "X-Appbuilder-Authorization": `Bearer ${apiKey}`,
@@ -191,11 +211,11 @@ async function handleBaiduSearchAnalyze(req, res) {
     });
 
     clearTimeout(timeout);
-    const rawText = await response.text();
+    const rawText = response.body;
 
     if (!response.ok) {
-      sendJson(res, response.status, {
-        error: `HTTP ${response.status}: ${trimText(rawText) || "百度搜索增强调用失败"}`,
+      sendJson(res, response.statusCode, {
+        error: `HTTP ${response.statusCode}: ${trimText(rawText) || "百度搜索增强调用失败"}`,
       });
       return;
     }
@@ -230,7 +250,7 @@ async function handleVerifyBaiduSearch(req, res) {
   const timeout = setTimeout(() => controller.abort(), 10000);
 
   try {
-    const response = await fetch("https://qianfan.baidubce.com/v2/ai_search/chat/completions", {
+    const response = await requestText("https://qianfan.baidubce.com/v2/ai_search/chat/completions", {
       method: "POST",
       headers: {
         "X-Appbuilder-Authorization": `Bearer ${apiKey}`,
@@ -249,11 +269,11 @@ async function handleVerifyBaiduSearch(req, res) {
     });
 
     clearTimeout(timeout);
-    const rawText = await response.text();
+    const rawText = response.body;
 
     if (!response.ok) {
-      sendJson(res, response.status, {
-        error: `HTTP ${response.status}: ${trimText(rawText) || "百度搜索增强验证失败"}`,
+      sendJson(res, response.statusCode, {
+        error: `HTTP ${response.statusCode}: ${trimText(rawText) || "百度搜索增强验证失败"}`,
       });
       return;
     }
@@ -265,6 +285,74 @@ async function handleVerifyBaiduSearch(req, res) {
       error.name === "AbortError" ? "百度搜索增强验证超时（10 秒），请稍后重试。" : error.message || "百度搜索增强验证失败";
     sendJson(res, 502, { error: message });
   }
+}
+
+function ensureLogDir() {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+function writeServerLog(message) {
+  const line = `[${new Date().toISOString()}] ${message}\n`;
+  fs.appendFileSync(SERVER_LOG_FILE, line, "utf8");
+}
+
+function requestText(target, options = {}) {
+  const url = typeof target === "string" ? new URL(target) : target;
+  const transport = url.protocol === "https:" ? https : http;
+  const { method = "GET", headers = {}, body = null, signal } = options;
+
+  return new Promise((resolve, reject) => {
+    const request = transport.request(
+      url,
+      {
+        method,
+        headers,
+      },
+      (response) => {
+        response.setEncoding("utf8");
+        let responseBody = "";
+        response.on("data", (chunk) => {
+          responseBody += chunk;
+        });
+        response.on("end", () => {
+          resolve({
+            ok: response.statusCode >= 200 && response.statusCode < 300,
+            statusCode: response.statusCode || 0,
+            body: responseBody,
+          });
+        });
+      },
+    );
+
+    request.on("error", (error) => {
+      reject(error);
+    });
+
+    if (signal) {
+      if (signal.aborted) {
+        const abortError = new Error("Request aborted");
+        abortError.name = "AbortError";
+        request.destroy(abortError);
+        return;
+      }
+
+      signal.addEventListener(
+        "abort",
+        () => {
+          const abortError = new Error("Request aborted");
+          abortError.name = "AbortError";
+          request.destroy(abortError);
+        },
+        { once: true },
+      );
+    }
+
+    if (body) {
+      request.write(body);
+    }
+
+    request.end();
+  });
 }
 
 function serveStatic(req, res) {

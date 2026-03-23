@@ -1,14 +1,24 @@
-const { spawn } = require("node:child_process");
-const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const http = require("node:http");
+const net = require("node:net");
+const { spawn, spawnSync } = require("node:child_process");
 
 const DEFAULT_PORT = "8080";
+const LOG_DIR = path.join(__dirname, "logs");
+const LAUNCH_LOG_FILE = path.join(LOG_DIR, "launcher.log");
+const SERVER_STDOUT_LOG_FILE = path.join(LOG_DIR, "server.stdout.log");
+const SERVER_STDERR_LOG_FILE = path.join(LOG_DIR, "server.stderr.log");
 
 void main();
 
 async function main() {
+  ensureLogDir();
+
   try {
     const port = promptForPort();
     if (!port) {
+      writeLaunchLog("Launch cancelled by user.");
       console.log("Launch cancelled.");
       return;
     }
@@ -16,55 +26,105 @@ async function main() {
     const appUrl = `http://localhost:${port}`;
     const healthUrl = `http://127.0.0.1:${port}/api/health`;
 
+    writeLaunchLog(`Launch requested on port ${port}. Node ${process.version}.`);
+
     const alreadyRunning = await isAppHealthy(healthUrl);
     if (!alreadyRunning) {
+      const portOpen = await isPortOpen("127.0.0.1", Number(port));
+      if (portOpen) {
+        const message = `Port ${port} is already in use by another process. Please choose another port.`;
+        writeLaunchLog(message);
+        throw new Error(`${message} Logs: ${LAUNCH_LOG_FILE}`);
+      }
+
       spawnServer(port);
-      await waitForHealth(healthUrl);
+      await waitForHealth(healthUrl, port);
     }
 
     openBrowser(appUrl);
+    writeLaunchLog(`App opened successfully at ${appUrl}.`);
     console.log(`MySQL optimizer opened at ${appUrl}`);
   } catch (error) {
+    writeLaunchLog(`Launch failed: ${error.message || error}`);
     console.error("Failed to launch app:", error.message || error);
     process.exitCode = 1;
   }
 }
 
+function ensureLogDir() {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+function writeLaunchLog(message) {
+  const line = `[${new Date().toISOString()}] ${message}\n`;
+  fs.appendFileSync(LAUNCH_LOG_FILE, line, "utf8");
+}
+
 function spawnServer(port) {
+  const stdoutFd = fs.openSync(SERVER_STDOUT_LOG_FILE, "a");
+  const stderrFd = fs.openSync(SERVER_STDERR_LOG_FILE, "a");
+
   const child = spawn(process.execPath, ["server.js"], {
     cwd: __dirname,
     detached: true,
-    stdio: "ignore",
+    stdio: ["ignore", stdoutFd, stderrFd],
     env: {
       ...process.env,
       PORT: String(port),
     },
   });
 
+  writeLaunchLog(`Spawned server process pid=${child.pid} on port ${port}.`);
   child.unref();
 }
 
 async function isAppHealthy(healthUrl) {
   try {
-    const response = await fetch(healthUrl, { method: "GET" });
-    return response.ok;
+    const response = await httpRequest(healthUrl, { method: "GET", timeoutMs: 2000 });
+    return response.statusCode === 200;
   } catch (error) {
     return false;
   }
 }
 
-async function waitForHealth(healthUrl) {
+async function waitForHealth(healthUrl, port) {
   const deadline = Date.now() + 15000;
 
   while (Date.now() < deadline) {
     if (await isAppHealthy(healthUrl)) {
+      writeLaunchLog(`Health check passed on port ${port}.`);
       return;
     }
 
     await sleep(400);
   }
 
-  throw new Error("Server did not become ready within 15 seconds.");
+  const stdoutTail = readTail(SERVER_STDOUT_LOG_FILE);
+  const stderrTail = readTail(SERVER_STDERR_LOG_FILE);
+  const portOpen = await isPortOpen("127.0.0.1", Number(port));
+  const reason = portOpen
+    ? `Port ${port} responded but /api/health did not become ready.`
+    : `Server process did not open port ${port}.`;
+
+  throw new Error(
+    `${reason} Please check logs:\n- ${LAUNCH_LOG_FILE}\n- ${SERVER_STDOUT_LOG_FILE}\n- ${SERVER_STDERR_LOG_FILE}\n` +
+      `${stdoutTail ? `Recent stdout:\n${stdoutTail}\n` : ""}` +
+      `${stderrTail ? `Recent stderr:\n${stderrTail}` : ""}`.trim(),
+  );
+}
+
+function readTail(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return "";
+    }
+
+    const text = fs.readFileSync(filePath, "utf8");
+    const lines = text.trim().split(/\r?\n/);
+    return lines.slice(-8).join("\n");
+  } catch (error) {
+    return "";
+  }
 }
 
 function sleep(ms) {
@@ -152,4 +212,54 @@ function openBrowser(url) {
   }
 
   spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
+}
+
+function httpRequest(urlString, options = {}) {
+  const { method = "GET", timeoutMs = 5000 } = options;
+
+  return new Promise((resolve, reject) => {
+    const request = http.request(urlString, { method, timeout: timeoutMs }, (response) => {
+      response.setEncoding("utf8");
+      let body = "";
+      response.on("data", (chunk) => {
+        body += chunk;
+      });
+      response.on("end", () => {
+        resolve({
+          statusCode: response.statusCode || 0,
+          body,
+        });
+      });
+    });
+
+    request.on("timeout", () => {
+      request.destroy(new Error("Request timeout"));
+    });
+
+    request.on("error", (error) => {
+      reject(error);
+    });
+
+    request.end();
+  });
+}
+
+function isPortOpen(host, port) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host, port });
+
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+
+    socket.once("error", () => {
+      resolve(false);
+    });
+
+    socket.setTimeout(1500, () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
 }
