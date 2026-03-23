@@ -14,6 +14,9 @@ const state = {
   activeSecret: "",
   results: null,
   inactivityLocked: false,
+  schemaValidation: { valid: true, message: "等待输入" },
+  sqlValidation: { valid: true, message: "等待输入" },
+  validationVisible: false,
 };
 
 const INACTIVITY_LOCK_MS = 10 * 60 * 1000;
@@ -27,6 +30,10 @@ const elements = {
   sqlHighlight: document.querySelector("#sqlHighlight"),
   schemaStatus: document.querySelector("#schemaStatus"),
   sqlStatus: document.querySelector("#sqlStatus"),
+  schemaValidationBanner: document.querySelector("#schemaValidationBanner"),
+  sqlValidationBanner: document.querySelector("#sqlValidationBanner"),
+  schemaEditor: document.querySelector("#schemaInput")?.closest(".editor-card")?.querySelector(".code-editor"),
+  sqlEditor: document.querySelector("#sqlInput")?.closest(".editor-card")?.querySelector(".code-editor"),
   metadataSummary: document.querySelector("#metadataSummary"),
   tableCount: document.querySelector("#tableCount"),
   modelCount: document.querySelector("#modelCount"),
@@ -140,6 +147,7 @@ async function init() {
 function bindEvents() {
   elements.schemaInput.addEventListener("input", () => {
     syncHighlight(elements.schemaInput, elements.schemaHighlight);
+    clearValidationDisplay();
     parseSchemaAndRender();
   });
 
@@ -156,6 +164,7 @@ function bindEvents() {
 
   elements.sqlInput.addEventListener("input", () => {
     syncHighlight(elements.sqlInput, elements.sqlHighlight);
+    clearValidationDisplay();
     updateSqlStatus();
   });
 
@@ -740,18 +749,19 @@ function parseSchemaAndRender() {
   const schema = elements.schemaInput.value.trim();
   if (!schema) {
     state.schemaMeta = [];
+    state.schemaValidation = { valid: false, message: "等待输入" };
     elements.schemaStatus.textContent = "等待输入";
+    elements.tableCount.textContent = "0";
     renderMetadata();
     return;
   }
 
   state.schemaMeta = parseCreateTables(schema);
   elements.schemaStatus.textContent = state.schemaMeta.length
-    ? `已识别 ${state.schemaMeta.length} 张表`
-    : "未识别到有效 CREATE TABLE";
+    ? `已解析 ${state.schemaMeta.length} 张表，点击分析时会做结构校验`
+    : "暂未识别到有效表结构，点击分析时会给出错误定位";
   elements.tableCount.textContent = String(state.schemaMeta.length);
   renderMetadata();
-  updateSqlStatus();
 }
 
 function openSchemaModal() {
@@ -777,6 +787,7 @@ function appendSchemaFromModal() {
   const current = elements.schemaInput.value.trim();
   elements.schemaInput.value = current ? `${current}\n\n${normalized}` : normalized;
   syncHighlight(elements.schemaInput, elements.schemaHighlight);
+  clearValidationDisplay();
   parseSchemaAndRender();
   closeSchemaModal();
 }
@@ -793,6 +804,7 @@ function normalizeSchemaAppend(raw) {
 function clearSchemaInput() {
   elements.schemaInput.value = "";
   syncHighlight(elements.schemaInput, elements.schemaHighlight);
+  clearValidationDisplay();
   parseSchemaAndRender();
 }
 
@@ -822,24 +834,90 @@ function renderMetadata() {
 function updateSqlStatus() {
   const sql = elements.sqlInput.value.trim();
   if (!sql) {
+    state.sqlValidation = { valid: false, message: "等待输入" };
     elements.sqlStatus.textContent = "等待输入";
     return;
   }
 
-  elements.sqlStatus.textContent = /^\s*select\b/i.test(sql) ? "已检测到 SELECT 查询" : "建议输入 SELECT 语句";
+  elements.sqlStatus.textContent = "待点击“开始优化分析”后执行语法与结构校验";
+}
+
+function renderSchemaValidation() {
+  renderInputValidation(
+    elements.schemaValidationBanner,
+    elements.schemaEditor,
+    state.schemaValidation,
+    "请先输入表结构。",
+  );
+}
+
+function renderSqlValidation() {
+  renderInputValidation(
+    elements.sqlValidationBanner,
+    elements.sqlEditor,
+    state.sqlValidation,
+    "请先输入待优化 SQL。",
+  );
+}
+
+function renderInputValidation(banner, editor, validation, idleText) {
+  const isIdle = validation.message === "等待输入";
+  const level = validation.level || (validation.valid ? "success" : "error");
+  const shouldShow = state.validationVisible && !isIdle && (!validation.valid || level === "warning");
+
+  if (!shouldShow) {
+    banner.classList.add("hidden");
+    banner.textContent = isIdle ? idleText : "";
+    editor?.classList.remove("invalid");
+    return;
+  }
+
+  banner.className = `status-banner ${level} input-validation`;
+  banner.innerHTML = buildValidationMarkup(level, validation.message, validation.detail || "");
+  banner.classList.remove("hidden");
+  editor?.classList.toggle("invalid", !validation.valid);
+}
+
+function buildValidationMarkup(level, message, detail) {
+  const levelLabel = level === "warning" ? "警告" : "错误";
+  return `
+    <div class="validation-banner-inner">
+      <span class="validation-pill ${level}">${levelLabel}</span>
+      <div class="validation-copy">
+        <strong>${escapeHtml(message)}</strong>
+        ${detail ? `<div class="validation-detail">${escapeHtml(detail)}</div>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function clearValidationDisplay() {
+  state.validationVisible = false;
+  elements.schemaValidationBanner.classList.add("hidden");
+  elements.sqlValidationBanner.classList.add("hidden");
+  elements.schemaEditor?.classList.remove("invalid");
+  elements.sqlEditor?.classList.remove("invalid");
 }
 
 function parseCreateTables(input) {
   const tables = [];
-  const regex = /CREATE\s+TABLE\s+`?([a-zA-Z0-9_]+)`?\s*\(([\s\S]*?)\)\s*;?/gi;
-  let match;
+  const blocks = extractCreateTableBlocks(String(input || ""));
 
-  while ((match = regex.exec(input))) {
-    const [, tableName, body] = match;
-    const lines = body
-      .split(/\n/)
-      .map((line) => line.trim().replace(/,$/, ""))
-      .filter(Boolean);
+  blocks.forEach((block) => {
+    const headerMatch = block.content.match(/CREATE\s+TABLE\s+`?([a-zA-Z0-9_]+)`?\s*\(/i);
+    if (!headerMatch) {
+      return;
+    }
+
+    const tableName = headerMatch[1];
+    const openParenIndex = block.content.indexOf("(", headerMatch.index || 0);
+    const closeParenIndex = findMatchingParen(block.content, openParenIndex);
+    if (openParenIndex === -1 || closeParenIndex === -1 || closeParenIndex <= openParenIndex) {
+      return;
+    }
+
+    const body = block.content.slice(openParenIndex + 1, closeParenIndex);
+    const lines = splitSqlDefinitions(body);
 
     const table = {
       name: tableName,
@@ -882,9 +960,95 @@ function parseCreateTables(input) {
     });
 
     tables.push(table);
-  }
+  });
 
   return tables;
+}
+
+function splitSqlDefinitions(body) {
+  const items = [];
+  let current = "";
+  let depth = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inBacktick = false;
+  let previousChar = "";
+
+  for (const char of String(body || "")) {
+    if (char === "'" && !inDoubleQuote && !inBacktick && previousChar !== "\\") {
+      inSingleQuote = !inSingleQuote;
+      current += char;
+    } else if (char === '"' && !inSingleQuote && !inBacktick && previousChar !== "\\") {
+      inDoubleQuote = !inDoubleQuote;
+      current += char;
+    } else if (char === "`" && !inSingleQuote && !inDoubleQuote) {
+      inBacktick = !inBacktick;
+      current += char;
+    } else if (!inSingleQuote && !inDoubleQuote && !inBacktick) {
+      if (char === "(") {
+        depth += 1;
+        current += char;
+      } else if (char === ")") {
+        depth = Math.max(0, depth - 1);
+        current += char;
+      } else if (char === "," && depth === 0) {
+        const normalized = current.trim();
+        if (normalized) {
+          items.push(normalized);
+        }
+        current = "";
+      } else {
+        current += char;
+      }
+    } else {
+      current += char;
+    }
+
+    previousChar = char;
+  }
+
+  const normalized = current.trim();
+  if (normalized) {
+    items.push(normalized);
+  }
+
+  return items;
+}
+
+function findMatchingParen(text, startIndex) {
+  if (startIndex < 0) {
+    return -1;
+  }
+
+  let depth = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inBacktick = false;
+  let previousChar = "";
+
+  for (let index = startIndex; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "'" && !inDoubleQuote && !inBacktick && previousChar !== "\\") {
+      inSingleQuote = !inSingleQuote;
+    } else if (char === '"' && !inSingleQuote && !inBacktick && previousChar !== "\\") {
+      inDoubleQuote = !inDoubleQuote;
+    } else if (char === "`" && !inSingleQuote && !inDoubleQuote) {
+      inBacktick = !inBacktick;
+    } else if (!inSingleQuote && !inDoubleQuote && !inBacktick) {
+      if (char === "(") {
+        depth += 1;
+      } else if (char === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          return index;
+        }
+      }
+    }
+
+    previousChar = char;
+  }
+
+  return -1;
 }
 
 function extractColumnList(line) {
@@ -1248,6 +1412,14 @@ function runAnalysis() {
     return;
   }
 
+  parseSchemaAndRender();
+  const validation = validateAnalysisInputs();
+  if (!validation.valid) {
+    showAnalysisToast(validation.message);
+    elements.afterSummary.textContent = validation.message;
+    return;
+  }
+
   const originalLabel = elements.analyzeButton.textContent;
   elements.analyzeButton.textContent = "分析中...";
   elements.analyzeButton.disabled = true;
@@ -1274,6 +1446,16 @@ async function runBaiduSearchAnalysis() {
 
   if (!sql) {
     showAnalysisToast("请输入待优化 SQL");
+    return;
+  }
+
+  parseSchemaAndRender();
+  const validation = validateAnalysisInputs();
+  if (!validation.valid) {
+    state.baiduStatusMessage = validation.message;
+    state.baiduStatusTone = "error";
+    renderBaiduStatus();
+    showAnalysisToast(validation.message);
     return;
   }
 
@@ -1472,13 +1654,19 @@ function analyzeSql(sql, schemaMeta) {
   const rewrite = rewriteSql(sql, aliasMap, schemaMeta);
   const beforeExplain = simulateExplain({
     sql,
+    schemaMeta,
+    aliasMap,
     conditions,
+    orderBy,
     recommended: false,
     hasRewrite: rewrite.changed,
   });
   const afterExplain = simulateExplain({
     sql: rewrite.sql,
+    schemaMeta,
+    aliasMap: buildAliasMap(rewrite.sql.replace(/\s+/g, " ").trim()),
     conditions,
+    orderBy: extractOrderBy(rewrite.sql.replace(/\s+/g, " ").trim()),
     recommended: true,
     hasRewrite: rewrite.changed,
   });
@@ -1519,6 +1707,512 @@ function analyzeSql(sql, schemaMeta) {
   };
 }
 
+function validateAnalysisInputs() {
+  state.schemaValidation = validateSchemaInput(elements.schemaInput.value.trim(), state.schemaMeta);
+  state.sqlValidation = validateSqlInput(elements.sqlInput.value.trim(), state.schemaMeta);
+  state.validationVisible = true;
+  renderSchemaValidation();
+  renderSqlValidation();
+  elements.schemaStatus.textContent = state.schemaValidation.valid
+    ? "表结构校验通过"
+    : state.schemaValidation.level === "warning"
+      ? "表结构存在警告"
+      : "表结构存在错误";
+  elements.sqlStatus.textContent = state.sqlValidation.valid
+    ? state.sqlValidation.level === "warning"
+      ? "SQL 存在警告"
+      : "SQL 校验通过"
+    : "SQL 存在错误";
+
+  if (!state.schemaValidation.valid) {
+    return {
+      valid: false,
+      message: `多表结构定义校验失败：${state.schemaValidation.message}`,
+    };
+  }
+
+  if (!state.sqlValidation.valid) {
+    return {
+      valid: false,
+      message: `待优化 SQL 校验失败：${state.sqlValidation.message}`,
+    };
+  }
+
+  return { valid: true, message: "" };
+}
+
+function validateSchemaInput(schema, parsedTables) {
+  const normalized = String(schema || "").trim();
+  if (!normalized) {
+    return { valid: false, message: "等待输入" };
+  }
+
+  const createMatches = normalized.match(/CREATE\s+TABLE\b/gi) || [];
+  if (!createMatches.length) {
+    return { valid: false, message: "未检测到 CREATE TABLE 语句" };
+  }
+
+  const structureCheck = validateBalancedStructure(normalized);
+  if (!structureCheck.valid) {
+    return { valid: false, message: structureCheck.message, detail: structureCheck.detail || "" };
+  }
+
+  if (!parsedTables.length) {
+    return { valid: false, message: "未识别到有效 CREATE TABLE，请检查括号、字段定义和分号" };
+  }
+
+  const blockValidation = validateCreateTableBlocks(normalized);
+  if (!blockValidation.valid) {
+    return blockValidation;
+  }
+
+  const invalidTable = parsedTables.find((table) => !table.columns.length);
+  if (invalidTable) {
+    return { valid: false, message: `表 ${invalidTable.name} 未识别到字段定义，请检查语句格式` };
+  }
+
+  return {
+    valid: true,
+    level: "success",
+    message: `已识别 ${parsedTables.length} 张表，结构校验通过`,
+  };
+}
+
+function validateSqlInput(sql, parsedTables = []) {
+  const normalized = String(sql || "").trim();
+  if (!normalized) {
+    return { valid: false, message: "等待输入" };
+  }
+
+  if (!/^\s*select\b/i.test(normalized)) {
+    return { valid: false, message: "当前仅支持 SELECT 查询优化" };
+  }
+
+  const structureCheck = validateBalancedStructure(normalized);
+  if (!structureCheck.valid) {
+    return { valid: false, message: structureCheck.message, detail: structureCheck.detail || "" };
+  }
+
+  if (!/\bFROM\b/i.test(normalized)) {
+    return { valid: false, message: "缺少 FROM 子句" };
+  }
+
+  const selectMatch = normalized.match(/\bSELECT\b([\s\S]*?)\bFROM\b/i);
+  if (!selectMatch || !selectMatch[1].trim()) {
+    return { valid: false, message: "SELECT 字段列表为空或格式不完整" };
+  }
+
+  if (selectMatch[1].split(",").some((item) => !item.trim())) {
+    return { valid: false, message: "SELECT 字段列表中存在空字段，请检查多余的逗号" };
+  }
+
+  const clauseOrder = [
+    { name: "WHERE", regex: /\bWHERE\b/i },
+    { name: "GROUP BY", regex: /\bGROUP\s+BY\b/i },
+    { name: "ORDER BY", regex: /\bORDER\s+BY\b/i },
+    { name: "LIMIT", regex: /\bLIMIT\b/i },
+  ]
+    .map((item) => {
+      const match = normalized.match(item.regex);
+      return match ? { name: item.name, index: match.index } : null;
+    })
+    .filter(Boolean);
+
+  for (let index = 1; index < clauseOrder.length; index += 1) {
+    if (clauseOrder[index].index < clauseOrder[index - 1].index) {
+      return { valid: false, message: `${clauseOrder[index].name} 子句位置异常，请检查 SQL 顺序` };
+    }
+  }
+
+  const joinIssue = detectJoinIssue(normalized);
+  if (joinIssue) {
+    return {
+      valid: false,
+      message: joinIssue.message,
+      detail: joinIssue.detail || "",
+    };
+  }
+
+  const undefinedAlias = detectUndefinedAlias(normalized);
+  if (undefinedAlias) {
+    return {
+      valid: false,
+      message: `检测到未声明的别名 ${undefinedAlias.alias}，请检查表别名或字段引用`,
+      detail: undefinedAlias.detail || "",
+    };
+  }
+
+  const unknownReference = detectUnknownSchemaReference(normalized, parsedTables);
+  if (unknownReference) {
+    return {
+      valid: false,
+      message: unknownReference.message,
+      detail: unknownReference.detail || "",
+    };
+  }
+
+  const warning = detectSqlWarning(normalized, parsedTables);
+  if (warning) {
+    return {
+      valid: true,
+      level: "warning",
+      message: warning.message,
+      detail: warning.detail || "",
+    };
+  }
+
+  return { valid: true, level: "success", message: "SQL 结构校验通过" };
+}
+
+function validateBalancedStructure(text) {
+  let offset = 0;
+  let parentheses = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inBacktick = false;
+  let previousChar = "";
+
+  for (const char of String(text || "")) {
+    if (char === "'" && !inDoubleQuote && !inBacktick && previousChar !== "\\") {
+      inSingleQuote = !inSingleQuote;
+    } else if (char === '"' && !inSingleQuote && !inBacktick && previousChar !== "\\") {
+      inDoubleQuote = !inDoubleQuote;
+    } else if (char === "`" && !inSingleQuote && !inDoubleQuote) {
+      inBacktick = !inBacktick;
+    } else if (!inSingleQuote && !inDoubleQuote && !inBacktick) {
+      if (char === "(") {
+        parentheses += 1;
+      } else if (char === ")") {
+        parentheses -= 1;
+        if (parentheses < 0) {
+          const location = locateOffset(String(text || ""), offset);
+          return {
+            valid: false,
+            offset,
+            message: `括号不匹配，第 ${location.line} 行第 ${location.column} 列附近存在多余右括号`,
+            detail: locationToText(location),
+          };
+        }
+      }
+    }
+
+    previousChar = char;
+    offset += 1;
+  }
+
+  if (inSingleQuote || inDoubleQuote || inBacktick) {
+    const errorOffset = Math.max(0, offset - 1);
+    const location = locateOffset(String(text || ""), errorOffset);
+    return {
+      valid: false,
+      offset: errorOffset,
+      message: `存在未闭合的引号，请检查第 ${location.line} 行第 ${location.column} 列附近`,
+      detail: locationToText(location),
+    };
+  }
+
+  if (parentheses !== 0) {
+    const errorOffset = Math.max(0, offset - 1);
+    const location = locateOffset(String(text || ""), errorOffset);
+    return {
+      valid: false,
+      offset: errorOffset,
+      message: `括号不匹配，请检查第 ${location.line} 行第 ${location.column} 列附近是否缺少右括号`,
+      detail: locationToText(location),
+    };
+  }
+
+  return { valid: true, message: "" };
+}
+
+function validateCreateTableBlocks(schema) {
+  const blocks = extractCreateTableBlocks(schema);
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    const structureCheck = validateBalancedStructure(block.content);
+    if (!structureCheck.valid) {
+      const absoluteOffset =
+        typeof structureCheck.offset === "number" ? block.start + structureCheck.offset : block.start;
+      const location = locateOffset(schema, absoluteOffset);
+      return {
+        valid: false,
+        message: `第 ${index + 1} 条 CREATE TABLE 校验失败：${simplifyStructureMessage(structureCheck.message)}`,
+        detail: locationToText(location) || structureCheck.detail || "",
+      };
+    }
+
+    const parsed = parseCreateTables(block.content);
+    if (!parsed.length) {
+      const location = locateOffset(schema, block.start);
+      return {
+        valid: false,
+        message: `第 ${index + 1} 条 CREATE TABLE 无法解析，请检查语句格式`,
+        detail: locationToText(location),
+      };
+    }
+
+    if (!parsed[0].columns.length) {
+      const location = locateOffset(schema, block.start);
+      return {
+        valid: false,
+        message: `第 ${index + 1} 条 CREATE TABLE 未识别到字段定义，请检查字段格式`,
+        detail: locationToText(location),
+      };
+    }
+  }
+
+  return { valid: true, message: "" };
+}
+
+function extractCreateTableBlocks(schema) {
+  const matches = [...String(schema || "").matchAll(/CREATE\s+TABLE\b/gi)];
+  if (!matches.length) {
+    return [];
+  }
+
+  return matches.map((match, index) => {
+    const start = match.index || 0;
+    const end = index + 1 < matches.length ? matches[index + 1].index || schema.length : schema.length;
+    return {
+      index,
+      start,
+      end,
+      content: schema.slice(start, end).trim(),
+    };
+  });
+}
+
+function locateOffset(text, offset) {
+  const source = String(text || "");
+  const safeOffset = Math.min(Math.max(offset, 0), source.length);
+  const lines = source.slice(0, safeOffset).split("\n");
+  const line = lines.length;
+  const column = lines[lines.length - 1].length + 1;
+  const currentLineText = source.split("\n")[line - 1] || "";
+  return { line, column, currentLineText };
+}
+
+function locationToText(location) {
+  if (!location?.currentLineText) {
+    return "";
+  }
+  return `定位：第 ${location.line} 行第 ${location.column} 列\n${location.currentLineText}`;
+}
+
+function simplifyStructureMessage(message) {
+  if (/未闭合的引号/.test(message)) {
+    return "存在未闭合的引号";
+  }
+  if (/多余右括号/.test(message)) {
+    return "存在多余右括号";
+  }
+  if (/括号不匹配/.test(message)) {
+    return "括号不匹配，可能缺少右括号";
+  }
+  return message;
+}
+
+function detectJoinIssue(sql) {
+  const joinMatches = [...sql.matchAll(/\b(?:LEFT|RIGHT|INNER|OUTER|CROSS)?\s*JOIN\b/gi)];
+  for (const match of joinMatches) {
+    const joinStart = match.index || 0;
+    const afterCurrentJoin = joinStart + match[0].length;
+    const tail = sql.slice(afterCurrentJoin);
+    const nextClause = tail.search(/\b(?:LEFT|RIGHT|INNER|OUTER|CROSS)?\s*JOIN\b|\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b/i);
+    const segment = nextClause > 0 ? tail.slice(0, nextClause) : tail;
+    if (!/\bON\b/i.test(segment) && !/\bUSING\b/i.test(segment)) {
+      const location = locateOffset(sql, joinStart);
+      return {
+        message: "检测到 JOIN 但缺少 ON / USING 条件",
+        detail: locationToText(location),
+      };
+    }
+  }
+  return null;
+}
+
+function detectUndefinedAlias(sql) {
+  const aliasMap = buildAliasMap(sql);
+  const matches = [...sql.matchAll(/\b([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\b/g)];
+  for (const match of matches) {
+    const alias = match[1];
+    if (!aliasMap[alias] && !aliasMap[alias.toLowerCase()] && !["date", "count", "sum", "avg", "max", "min"].includes(alias.toLowerCase())) {
+      const location = locateOffset(sql, match.index || 0);
+      return {
+        alias,
+        detail: locationToText(location),
+      };
+    }
+  }
+  return null;
+}
+
+function detectUnknownSchemaReference(sql, parsedTables) {
+  if (!Array.isArray(parsedTables) || !parsedTables.length) {
+    return null;
+  }
+
+  const aliasMap = buildAliasMap(sql);
+  const schemaByTable = Object.fromEntries(
+    parsedTables.map((table) => [table.name.toLowerCase(), new Set(table.columns.map((column) => column.name.toLowerCase()))]),
+  );
+
+  for (const [alias, tableName] of Object.entries(aliasMap)) {
+    if (!schemaByTable[String(tableName).toLowerCase()]) {
+      const fromMatch = [...sql.matchAll(new RegExp(`\\b(?:FROM|JOIN)\\s+\`?${tableName}\`?\\b`, "gi"))][0];
+      const location = locateOffset(sql, fromMatch?.index || 0);
+      return {
+        message: `检测到未定义的表 ${tableName}，请先在多表结构定义中补充 CREATE TABLE`,
+        detail: locationToText(location),
+      };
+    }
+  }
+
+  const references = [...sql.matchAll(/\b([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\b/g)];
+  for (const match of references) {
+    const alias = match[1];
+    const column = match[2];
+    const tableName = aliasMap[alias] || aliasMap[alias.toLowerCase()];
+    const normalizedTableName = String(tableName || "").toLowerCase();
+    if (!tableName || !schemaByTable[normalizedTableName]) {
+      continue;
+    }
+
+    if (!schemaByTable[normalizedTableName].has(column.toLowerCase())) {
+      const location = locateOffset(sql, match.index || 0);
+      return {
+        message: `字段 ${alias}.${column} 在表 ${tableName} 中不存在，请检查字段名或别名`,
+        detail: locationToText(location),
+      };
+    }
+  }
+
+  const clauseIssue = detectClauseReferenceIssue(sql, parsedTables);
+  if (clauseIssue && clauseIssue.level !== "warning") {
+    return clauseIssue;
+  }
+
+  return null;
+}
+
+function detectClauseReferenceIssue(sql, parsedTables) {
+  const aliasMap = buildAliasMap(sql);
+  const activeTables = new Set(Object.values(aliasMap).map((tableName) => String(tableName).toLowerCase()));
+  const selectAliases = extractSelectAliases(sql);
+  const schemaByTable = Object.fromEntries(
+    parsedTables.map((table) => [table.name.toLowerCase(), new Set(table.columns.map((column) => column.name.toLowerCase()))]),
+  );
+
+  for (const clauseName of ["ORDER BY", "GROUP BY"]) {
+    const parts = extractClauseParts(sql, clauseName);
+    for (const part of parts) {
+      const expression = part.expression;
+      if (!expression || /^\d+$/.test(expression) || selectAliases.has(expression)) {
+        continue;
+      }
+
+      const qualified = expression.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)$/);
+      if (qualified) {
+        const [, alias, column] = qualified;
+        const tableName = aliasMap[alias] || aliasMap[alias.toLowerCase()];
+        const normalizedTableName = String(tableName || "").toLowerCase();
+        if (tableName && schemaByTable[normalizedTableName] && !schemaByTable[normalizedTableName].has(column.toLowerCase())) {
+          const location = locateOffset(sql, part.offset);
+          return {
+            message: `${clauseName} 引用了不存在的字段 ${alias}.${column}`,
+            detail: locationToText(location),
+          };
+        }
+        continue;
+      }
+
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(expression)) {
+        continue;
+      }
+
+      const matchedTables = [...activeTables].filter((tableName) => schemaByTable[tableName]?.has(expression.toLowerCase()));
+      const location = locateOffset(sql, part.offset);
+
+      if (!matchedTables.length) {
+        return {
+          message: `${clauseName} 引用了不存在的字段 ${expression}`,
+          detail: locationToText(location),
+        };
+      }
+
+      if (matchedTables.length > 1) {
+        return {
+          message: `${clauseName} 中的字段 ${expression} 未显式指定表别名，存在歧义风险`,
+          detail: locationToText(location),
+          level: "warning",
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function detectSqlWarning(sql, parsedTables) {
+  if (/\bSELECT\s+\*/i.test(sql)) {
+    return {
+      message: "检测到 SELECT *，建议明确字段列表以减少回表和网络传输",
+      detail: "警告：热点查询尽量只返回必要字段。",
+    };
+  }
+
+  const clauseIssue = detectClauseReferenceIssue(sql, parsedTables);
+  if (clauseIssue?.level === "warning") {
+    return clauseIssue;
+  }
+
+  return null;
+}
+
+function extractClauseParts(sql, clauseName) {
+  const regexMap = {
+    "ORDER BY": /\bORDER\s+BY\b([\s\S]*?)(?:\bLIMIT\b|;|$)/i,
+    "GROUP BY": /\bGROUP\s+BY\b([\s\S]*?)(?:\bORDER\s+BY\b|\bLIMIT\b|;|$)/i,
+  };
+  const match = sql.match(regexMap[clauseName]);
+  if (!match) {
+    return [];
+  }
+
+  const clauseBody = match[1];
+  const bodyStart = (match.index || 0) + match[0].indexOf(clauseBody);
+  return clauseBody
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const normalized = part.replace(/\s+(ASC|DESC)$/i, "").trim();
+      return {
+        raw: part,
+        expression: normalized,
+        offset: sql.indexOf(normalized, bodyStart),
+      };
+    });
+}
+
+function extractSelectAliases(sql) {
+  const aliases = new Set();
+  const columns = extractSelectColumns(sql);
+  columns.forEach((part) => {
+    const asMatch = part.match(/\bAS\s+([a-zA-Z_][a-zA-Z0-9_]*)$/i);
+    if (asMatch) {
+      aliases.add(asMatch[1]);
+      return;
+    }
+
+    const trailingAlias = part.match(/(?:[a-zA-Z0-9_.()`]+)\s+([a-zA-Z_][a-zA-Z0-9_]*)$/);
+    if (trailingAlias && !/\./.test(trailingAlias[1])) {
+      aliases.add(trailingAlias[1]);
+    }
+  });
+  return aliases;
+}
+
 function buildAliasMap(sql) {
   const aliasMap = {};
   const regex = /\b(?:FROM|JOIN)\s+`?([a-zA-Z0-9_]+)`?(?:\s+(?:AS\s+)?([a-zA-Z0-9_]+))?/gi;
@@ -1527,6 +2221,7 @@ function buildAliasMap(sql) {
     const table = match[1];
     const alias = match[2] || table;
     aliasMap[alias] = table;
+    aliasMap[alias.toLowerCase()] = table;
   }
   return aliasMap;
 }
@@ -1678,16 +2373,404 @@ function addOneDay(date) {
   return `${nextYear}-${nextMonth}-${nextDay}`;
 }
 
-function simulateExplain({ conditions, recommended, hasRewrite }) {
-  const type = recommended ? (hasRewrite ? "range" : "ref") : conditions.length ? "ALL" : "index";
-  const rows = recommended ? Math.max(12, 1200 - conditions.length * 320) : 18000;
-  const extra = recommended ? "Using index condition; Using where" : "Using where; Using filesort";
+function simulateExplain({ sql, schemaMeta, aliasMap, conditions, orderBy, recommended, hasRewrite }) {
+  const entries = extractExplainEntries(sql, aliasMap);
+  const schemaMap = Object.fromEntries(schemaMeta.map((table) => [table.name.toLowerCase(), table]));
+  const whereStats = buildWhereConditionStats(conditions, aliasMap);
+  const joinStats = buildJoinConditionStats(entries);
+  const driverAlias = pickExplainDriver(entries, whereStats, joinStats, schemaMap);
+  const distinct = /\bSELECT\s+DISTINCT\b/i.test(sql);
+  const orderedEntries = orderExplainEntries(entries, driverAlias);
+
+  const rowsData = orderedEntries.map((entry, index) => {
+    const aliasKey = entry.alias.toLowerCase();
+    const tableMeta = schemaMap[entry.table.toLowerCase()];
+    const whereColumns = uniqueOrdered((whereStats[aliasKey]?.columns || []).map((column) => String(column)));
+    const joinColumns = uniqueOrdered((joinStats[aliasKey]?.joinColumns || []).map((column) => String(column)));
+    const constantOnColumns = uniqueOrdered((joinStats[aliasKey]?.constantColumns || []).map((column) => String(column)));
+    const allRelevantColumns = uniqueOrdered([...whereColumns, ...joinColumns, ...constantOnColumns]);
+    const hasFunctionWrappedCondition = Boolean(whereStats[aliasKey]?.hasFunctionWrappedCondition);
+    const hasJoinIndex = hasIndexCoverage(tableMeta, joinColumns);
+    const hasFilterIndex = hasIndexCoverage(tableMeta, [...whereColumns, ...constantOnColumns]);
+    const joinIndexHint = findBestIndexHint(tableMeta, joinColumns);
+    const filterIndexHint = findBestIndexHint(tableMeta, [...whereColumns, ...constantOnColumns]);
+    const usesOrder = orderBy.some(
+      (item) => resolveTableName(item.alias, aliasMap, item.column).toLowerCase() === entry.table.toLowerCase(),
+    );
+
+    const isDriver = aliasKey === driverAlias;
+    let type = "ALL";
+    if (isDriver) {
+      if (hasFilterIndex && !hasFunctionWrappedCondition) {
+        type = constantOnColumns.length + whereColumns.length >= 2 ? "range" : "ref";
+      } else if (whereColumns.length && !hasFunctionWrappedCondition) {
+        type = "range";
+      }
+    } else if (hasJoinIndex) {
+      type = "ref";
+    } else if (hasFilterIndex && !hasFunctionWrappedCondition) {
+      type = "range";
+    }
+
+    if (recommended && type === "ALL" && (hasJoinIndex || hasFilterIndex)) {
+      type = hasJoinIndex ? "ref" : "range";
+    }
+
+    const rows = estimateExplainRows({
+      tableMeta,
+      isDriver,
+      whereColumns,
+      joinColumns,
+      constantOnColumns,
+      hasJoinIndex,
+      hasFilterIndex,
+      recommended,
+    });
+
+    const extras = [];
+    if (allRelevantColumns.length) {
+      extras.push("Using where");
+    }
+    if (isDriver && distinct) {
+      extras.push("Using temporary");
+    }
+    if (isDriver && usesOrder) {
+      extras.push("Using filesort");
+    }
+    if (!isDriver && distinct && index === rowsDataIndexFallback(orderedEntries.length, index)) {
+      extras.push("Distinct");
+    }
+    if (recommended && (hasJoinIndex || hasFilterIndex) && !hasFunctionWrappedCondition) {
+      extras.push("Using index condition");
+    }
+
+    const explainReason = buildExplainReason({
+      entry,
+      isDriver,
+      type,
+      whereColumns,
+      joinColumns,
+      constantOnColumns,
+      hasJoinIndex,
+      hasFilterIndex,
+      joinIndexHint,
+      filterIndexHint,
+      hasFunctionWrappedCondition,
+      usesOrder,
+      distinct,
+    });
+
+    return {
+      id: 1,
+      selectType: "SIMPLE",
+      table: entry.alias && entry.alias !== entry.table ? `${entry.table} (${entry.alias})` : entry.table,
+      type,
+      rows,
+      extra: uniqueOrdered(extras).join("; ") || "Using where",
+      reason: explainReason.reason,
+      indexHint: explainReason.indexHint,
+      roleLabel: explainReason.roleLabel,
+    };
+  });
+
+  const estimatedRows = rowsData.reduce((sum, row) => sum + row.rows, 0);
 
   return {
-    rowsData: [{ id: 1, selectType: "SIMPLE", table: "primary", type, rows, extra }],
-    primaryType: type,
-    estimatedRows: rows,
-    extra,
+    rowsData,
+    primaryType: rowsData[0]?.type || "ALL",
+    estimatedRows,
+    extra: rowsData.map((row) => row.extra).join(" | "),
+  };
+}
+
+function extractExplainEntries(sql, aliasMap) {
+  const normalizedSql = String(sql || "");
+  const entries = [];
+  const fromMatch = normalizedSql.match(/\bFROM\s+`?([a-zA-Z0-9_]+)`?(?:\s+(?:AS\s+)?([a-zA-Z0-9_]+))?/i);
+  if (fromMatch) {
+    const table = fromMatch[1];
+    const alias = fromMatch[2] || table;
+    entries.push({
+      joinType: "FROM",
+      table: aliasMap[alias] || aliasMap[alias.toLowerCase()] || table,
+      alias,
+      onClause: "",
+    });
+  }
+
+  const joinMatches = [
+    ...normalizedSql.matchAll(
+      /\b((?:LEFT|RIGHT|INNER|OUTER|CROSS)?\s*JOIN)\s+`?([a-zA-Z0-9_]+)`?(?:\s+(?:AS\s+)?([a-zA-Z0-9_]+))?(?:\s+ON\s+([\s\S]*?))?(?=\b(?:LEFT|RIGHT|INNER|OUTER|CROSS)?\s*JOIN\b|\bWHERE\b|\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|;|$)/gi,
+    ),
+  ];
+
+  joinMatches.forEach((match) => {
+    const table = match[2];
+    const alias = match[3] || table;
+    entries.push({
+      joinType: match[1].toUpperCase().replace(/\s+/g, " "),
+      table: aliasMap[alias] || aliasMap[alias.toLowerCase()] || table,
+      alias,
+      onClause: (match[4] || "").trim(),
+    });
+  });
+
+  if (!entries.length) {
+    return [{ table: "primary", alias: "", joinType: "FROM", onClause: "" }];
+  }
+
+  return entries;
+}
+
+function buildWhereConditionStats(conditions, aliasMap) {
+  const stats = {};
+  conditions.forEach((condition) => {
+    const tableName = resolveTableName(condition.alias, aliasMap, condition.column);
+    if (!tableName) {
+      return;
+    }
+    const aliasKey = String(condition.alias || tableName).toLowerCase();
+    if (!stats[aliasKey]) {
+      stats[aliasKey] = {
+        columns: [],
+        hasFunctionWrappedCondition: false,
+      };
+    }
+    if (condition.column) {
+      stats[aliasKey].columns.push(condition.column);
+    }
+    if (condition.isWrappedByFunction) {
+      stats[aliasKey].hasFunctionWrappedCondition = true;
+    }
+  });
+  return stats;
+}
+
+function buildJoinConditionStats(entries) {
+  const stats = {};
+  entries.forEach((entry) => {
+    const aliasKey = String(entry.alias || entry.table).toLowerCase();
+    if (!stats[aliasKey]) {
+      stats[aliasKey] = {
+        joinColumns: [],
+        constantColumns: [],
+      };
+    }
+
+    const fragments = String(entry.onClause || "")
+      .split(/\bAND\b/i)
+      .map((fragment) => fragment.trim())
+      .filter(Boolean);
+
+    fragments.forEach((fragment) => {
+      const joinMatch = fragment.match(/([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)/i);
+      if (joinMatch) {
+        const leftAlias = joinMatch[1].toLowerCase();
+        const leftColumn = joinMatch[2];
+        const rightAlias = joinMatch[3].toLowerCase();
+        const rightColumn = joinMatch[4];
+
+        stats[leftAlias] ||= { joinColumns: [], constantColumns: [] };
+        stats[rightAlias] ||= { joinColumns: [], constantColumns: [] };
+        stats[leftAlias].joinColumns.push(leftColumn);
+        stats[rightAlias].joinColumns.push(rightColumn);
+        return;
+      }
+
+      const constantMatch = fragment.match(/([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\s*(=|>=|<=|>|<|IN|BETWEEN|LIKE)\s*/i);
+      if (constantMatch) {
+        const alias = constantMatch[1].toLowerCase();
+        const column = constantMatch[2];
+        stats[alias] ||= { joinColumns: [], constantColumns: [] };
+        stats[alias].constantColumns.push(column);
+      }
+    });
+  });
+
+  return stats;
+}
+
+function pickExplainDriver(entries, whereStats, joinStats, schemaMap) {
+  if (!entries.length) {
+    return "";
+  }
+
+  const scored = entries.map((entry) => {
+    const aliasKey = String(entry.alias || entry.table).toLowerCase();
+    const tableMeta = schemaMap[entry.table.toLowerCase()];
+    const whereColumns = whereStats[aliasKey]?.columns?.length || 0;
+    const constantColumns = joinStats[aliasKey]?.constantColumns?.length || 0;
+    const joinColumns = joinStats[aliasKey]?.joinColumns?.length || 0;
+    const filterIndex = hasIndexCoverage(tableMeta, [
+      ...(whereStats[aliasKey]?.columns || []),
+      ...(joinStats[aliasKey]?.constantColumns || []),
+    ]);
+    const score = whereColumns * 5 + constantColumns * 6 + (filterIndex ? 4 : 0) - joinColumns;
+    return {
+      aliasKey,
+      score,
+      columnCount: tableMeta?.columns?.length || 999,
+    };
+  });
+
+  scored.sort((left, right) => right.score - left.score || left.columnCount - right.columnCount);
+  return scored[0]?.aliasKey || String(entries[0].alias || entries[0].table).toLowerCase();
+}
+
+function orderExplainEntries(entries, driverAlias) {
+  const driverIndex = entries.findIndex((entry) => String(entry.alias || entry.table).toLowerCase() === driverAlias);
+  if (driverIndex <= 0) {
+    return entries;
+  }
+
+  const ordered = [entries[driverIndex], ...entries.slice(0, driverIndex), ...entries.slice(driverIndex + 1)];
+  return ordered;
+}
+
+function estimateExplainRows({
+  tableMeta,
+  isDriver,
+  whereColumns,
+  joinColumns,
+  constantOnColumns,
+  hasJoinIndex,
+  hasFilterIndex,
+  recommended,
+}) {
+  const baseRows = Math.max(90, (tableMeta?.columns?.length || 12) * 420);
+  let divisor = 1;
+
+  if (isDriver) {
+    divisor *= 1 + whereColumns.length * 2.8 + constantOnColumns.length * 3.4;
+    if (hasFilterIndex) {
+      divisor *= recommended ? 1.8 : 1.35;
+    }
+  } else {
+    divisor *= 1 + joinColumns.length * 4.2 + whereColumns.length * 1.4 + constantOnColumns.length * 1.8;
+    if (hasJoinIndex) {
+      divisor *= recommended ? 2.4 : 1.9;
+    } else if (hasFilterIndex) {
+      divisor *= recommended ? 1.8 : 1.3;
+    }
+  }
+
+  const rows = Math.max(1, Math.round(baseRows / divisor));
+  return rows;
+}
+
+function rowsDataIndexFallback(length, index) {
+  return Math.max(0, length - 1) === index ? index : Math.max(0, length - 1);
+}
+
+function hasIndexCoverage(tableMeta, columns) {
+  if (!tableMeta || !columns.length) {
+    return false;
+  }
+
+  const normalizedColumns = columns.map((column) => String(column).toLowerCase());
+  const primaryKey = (tableMeta.primaryKey || []).map((column) => String(column).toLowerCase());
+  if (primaryKey.some((column) => normalizedColumns.includes(column))) {
+    return true;
+  }
+
+  return (tableMeta.indexes || []).some((index) =>
+    (index.columns || [])
+      .map((column) => String(column).toLowerCase())
+      .some((column) => normalizedColumns.includes(column)),
+  );
+}
+
+function findBestIndexHint(tableMeta, columns) {
+  if (!tableMeta || !columns.length) {
+    return "";
+  }
+
+  const normalizedColumns = columns.map((column) => String(column).toLowerCase());
+  const primaryKey = (tableMeta.primaryKey || []).map((column) => String(column).toLowerCase());
+  if (primaryKey.length && primaryKey.some((column) => normalizedColumns.includes(column))) {
+    return `PRIMARY (${tableMeta.primaryKey.join(", ")})`;
+  }
+
+  const matchedIndex = (tableMeta.indexes || []).find((index) =>
+    (index.columns || [])
+      .map((column) => String(column).toLowerCase())
+      .some((column) => normalizedColumns.includes(column)),
+  );
+
+  if (!matchedIndex) {
+    return "";
+  }
+
+  return `${matchedIndex.name} (${matchedIndex.columns.join(", ")})`;
+}
+
+function buildExplainReason({
+  entry,
+  isDriver,
+  type,
+  whereColumns,
+  joinColumns,
+  constantOnColumns,
+  hasJoinIndex,
+  hasFilterIndex,
+  joinIndexHint,
+  filterIndexHint,
+  hasFunctionWrappedCondition,
+  usesOrder,
+  distinct,
+}) {
+  const reasons = [];
+  const roleLabel = isDriver ? "驱动表" : entry.joinType === "FROM" ? "主表" : "关联表";
+  let indexHint = "";
+
+  if (isDriver) {
+    reasons.push("被识别为驱动表，优先进入执行计划。");
+  } else if (entry.joinType !== "FROM") {
+    reasons.push(`通过 ${entry.joinType} 参与关联。`);
+  }
+
+  if (joinColumns.length) {
+    reasons.push(`连接列：${joinColumns.join(", ")}。`);
+  }
+  if (whereColumns.length) {
+    reasons.push(`过滤列：${whereColumns.join(", ")}。`);
+  }
+  if (constantOnColumns.length) {
+    reasons.push(`ON 子句常量过滤列：${constantOnColumns.join(", ")}。`);
+  }
+
+  if (type === "ref") {
+    if (hasJoinIndex) {
+      indexHint = joinIndexHint;
+      reasons.push(`基于连接列，判断更可能命中索引 ${joinIndexHint || "（现有关联索引）"}，因此模拟为 ref。`);
+    } else if (hasFilterIndex) {
+      indexHint = filterIndexHint;
+      reasons.push(`过滤列具备索引支撑，模拟为 ref。`);
+    } else {
+      reasons.push("存在较明确的等值关联条件，模拟为 ref。");
+    }
+  } else if (type === "range") {
+    indexHint = filterIndexHint || joinIndexHint;
+    reasons.push(
+      hasFunctionWrappedCondition
+        ? "存在函数包裹或范围过滤，索引利用受限，因此模拟为 range。"
+        : `存在范围筛选或部分索引可用${indexHint ? `，可能命中 ${indexHint}` : ""}，因此模拟为 range。`,
+    );
+  } else {
+    reasons.push("未识别到足够强的索引命中信号，因此保守模拟为 ALL。");
+  }
+
+  if (usesOrder && isDriver) {
+    reasons.push("当前排序落在该表字段上，若索引顺序不完全匹配，容易出现 filesort。");
+  }
+  if (distinct && isDriver) {
+    reasons.push("存在 DISTINCT，驱动阶段可能引入 temporary / 去重成本。");
+  }
+
+  return {
+    roleLabel,
+    indexHint,
+    reason: reasons.join(" "),
   };
 }
 
@@ -1721,6 +2804,24 @@ function renderExplainTable(rows) {
           .join("")}
       </tbody>
     </table>
+    <div class="explain-rationale-list">
+      ${rows
+        .map(
+          (row) => `
+            <div class="explain-rationale-card">
+              <div class="explain-rationale-head">
+                <strong>${highlightPlainText(String(row.table))}</strong>
+                <span>${highlightPlainText(row.roleLabel || "执行节点")}</span>
+              </div>
+              <div class="explain-rationale-body">
+                <div><b>判断依据：</b>${highlightPlainText(row.reason || "暂无依据说明。", { preserveLineBreaks: true })}</div>
+                <div><b>可能命中索引：</b>${highlightPlainText(row.indexHint || "未识别到明确索引命中。")}</div>
+              </div>
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
   `;
 }
 

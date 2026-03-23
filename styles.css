@@ -238,6 +238,11 @@ h1 {
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+.code-editor.invalid {
+  border-color: rgba(194, 59, 42, 0.52);
+  box-shadow: 0 0 0 1px rgba(194, 59, 42, 0.18);
+}
+
 .highlight-layer,
 .code-editor textarea {
   margin: 0;
@@ -433,13 +438,65 @@ button:disabled {
 }
 
 .status-banner.error {
-  background: rgba(166, 58, 43, 0.12);
+  background: rgba(166, 58, 43, 0.14);
   color: var(--danger);
 }
 
 .status-banner.warning {
   background: rgba(166, 103, 8, 0.12);
   color: var(--warning);
+}
+
+.input-validation {
+  margin-top: 12px;
+  padding: 16px 18px;
+  border: 1px solid rgba(194, 59, 42, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(194, 59, 42, 0.08);
+  white-space: pre-wrap;
+  font-size: 0.98rem;
+  font-weight: 600;
+  line-height: 1.65;
+}
+
+.validation-banner-inner {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.validation-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.validation-pill.error {
+  background: rgba(166, 58, 43, 0.18);
+  color: var(--danger);
+}
+
+.validation-pill.warning {
+  background: rgba(181, 106, 0, 0.16);
+  color: var(--warning);
+}
+
+.validation-copy strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.validation-detail {
+  font-family: var(--font-code);
+  font-size: 0.9rem;
+  font-weight: 500;
+  opacity: 0.95;
 }
 
 .summary-box,
@@ -521,6 +578,49 @@ button:disabled {
   border-top: 1px dashed rgba(255, 255, 255, 0.12);
   font-family: var(--font-body);
   line-height: 1.7;
+}
+
+.explain-rationale-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.explain-rationale-card {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.explain-rationale-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.explain-rationale-head strong {
+  color: #eef4ff;
+}
+
+.explain-rationale-head span {
+  color: #8eb7ff;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.explain-rationale-body {
+  display: grid;
+  gap: 8px;
+  color: #d7e5ff;
+  font-family: var(--font-body);
+  line-height: 1.65;
+}
+
+.explain-rationale-body b {
+  color: #ffffff;
 }
 
 .explain-compare-grid {
