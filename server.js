@@ -97,9 +97,6 @@ async function handleVerify(req, res) {
     return;
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
-
   try {
     const requestOptions =
       verifyMode === "chat_post"
@@ -114,19 +111,17 @@ async function handleVerify(req, res) {
               messages: [{ role: "user", content: "ping" }],
               max_tokens: 1,
             }),
-            signal: controller.signal,
+            timeoutMs: 5000,
           }
         : {
             method: "GET",
             headers: {
               Authorization: `Bearer ${apiKey}`,
             },
-            signal: controller.signal,
+            timeoutMs: 5000,
           };
 
     const response = await requestText(target, requestOptions);
-
-    clearTimeout(timeout);
 
     const rawText = response.body;
     let payload = {};
@@ -163,7 +158,6 @@ async function handleVerify(req, res) {
       modelCount: Array.isArray(payload.data) ? payload.data.length : null,
     });
   } catch (error) {
-    clearTimeout(timeout);
     const message =
       error.name === "AbortError" ? "请求超时（5 秒），请检查网络后重试。" : error.message || "请求失败";
     sendJson(res, 502, { error: message });
@@ -186,9 +180,6 @@ async function handleBaiduSearchAnalyze(req, res) {
     return;
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
-
   try {
     const response = await requestText("https://qianfan.baidubce.com/v2/ai_search/chat/completions", {
       method: "POST",
@@ -207,10 +198,8 @@ async function handleBaiduSearchAnalyze(req, res) {
           },
         ],
       }),
-      signal: controller.signal,
+      timeoutMs: 15000,
     });
-
-    clearTimeout(timeout);
     const rawText = response.body;
 
     if (!response.ok) {
@@ -230,7 +219,6 @@ async function handleBaiduSearchAnalyze(req, res) {
       raw: typeof content === "string" ? trimText(content) : "",
     });
   } catch (error) {
-    clearTimeout(timeout);
     const message =
       error.name === "AbortError" ? "百度搜索增强请求超时（15 秒），请稍后重试。" : error.message || "百度搜索增强请求失败";
     sendJson(res, 502, { error: message });
@@ -245,9 +233,6 @@ async function handleVerifyBaiduSearch(req, res) {
     sendJson(res, 400, { error: "缺少百度 API Key" });
     return;
   }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
 
   try {
     const response = await requestText("https://qianfan.baidubce.com/v2/ai_search/chat/completions", {
@@ -265,10 +250,8 @@ async function handleVerifyBaiduSearch(req, res) {
           },
         ],
       }),
-      signal: controller.signal,
+      timeoutMs: 10000,
     });
-
-    clearTimeout(timeout);
     const rawText = response.body;
 
     if (!response.ok) {
@@ -280,7 +263,6 @@ async function handleVerifyBaiduSearch(req, res) {
 
     sendJson(res, 200, { ok: true, message: "验证通过" });
   } catch (error) {
-    clearTimeout(timeout);
     const message =
       error.name === "AbortError" ? "百度搜索增强验证超时（10 秒），请稍后重试。" : error.message || "百度搜索增强验证失败";
     sendJson(res, 502, { error: message });
@@ -299,7 +281,7 @@ function writeServerLog(message) {
 function requestText(target, options = {}) {
   const url = typeof target === "string" ? new URL(target) : target;
   const transport = url.protocol === "https:" ? https : http;
-  const { method = "GET", headers = {}, body = null, signal } = options;
+  const { method = "GET", headers = {}, body = null, timeoutMs = 0 } = options;
 
   return new Promise((resolve, reject) => {
     const request = transport.request(
@@ -328,23 +310,12 @@ function requestText(target, options = {}) {
       reject(error);
     });
 
-    if (signal) {
-      if (signal.aborted) {
-        const abortError = new Error("Request aborted");
+    if (timeoutMs > 0) {
+      request.setTimeout(timeoutMs, () => {
+        const abortError = new Error("Request timeout");
         abortError.name = "AbortError";
         request.destroy(abortError);
-        return;
-      }
-
-      signal.addEventListener(
-        "abort",
-        () => {
-          const abortError = new Error("Request aborted");
-          abortError.name = "AbortError";
-          request.destroy(abortError);
-        },
-        { once: true },
-      );
+      });
     }
 
     if (body) {
